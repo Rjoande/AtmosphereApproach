@@ -1,0 +1,18 @@
+# Internal development material (the Claude Code hub, design notes, test
+# protocols, worklog): not part of the shipped mod, kept local only.
+.claude
+CLAUDE.md
+notes/
+dev/
+
+# Release packages
+AtmosphereApproach*.zip
+
+# MSBuild output (Directory.Build.props sends it to LOCALAPPDATA; safety net)
+Source/bin/
+Source/obj/
+Source/.vs/
+
+# OS/editor cruft
+.DS_Store
+Thumbs.db
