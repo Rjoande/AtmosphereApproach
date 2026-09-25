@@ -16,7 +16,10 @@ namespace AtmosphereApproach
         const string Tag = "[AtmosphereApproach] ";
 
         // Window id must be unique among every IMGUI window in the game: "AAPR" as bytes.
-        internal ApproachController(Vessel v) : base(v, "Approach controller", 0x41415052) { }
+        internal ApproachController(Vessel v) : base(v, "Approach controller", 0x41415052)
+        {
+            window.width = 300.0f;
+        }
 
         FlightModel imodel;
         DirectorController dir_c;
@@ -44,12 +47,6 @@ namespace AtmosphereApproach
         /// <summary>Why APR is still waiting (shown in the window), empty when nothing blocks it.</summary>
         public string gate = "";
 
-        // Controller flying the aircraft while APR is not (yet) steering; activated from inside this
-        // module the same way Cruise Flight activates its director, and released in OnDeactivate.
-        StateController underlying;
-
-        StateController Underlying { get { return armed_with_cruise ? (StateController)cruise : fbw; } }
-
         public bool Armed
         {
             get { return state != ApproachState.Off; }
@@ -63,18 +60,45 @@ namespace AtmosphereApproach
                     if (rwy == null || rwy.body != vessel.mainBody.name)
                     {
                         MessageManager.post_quick_message("APR: no runway tuned on this body");
+                        Debug.Log(Tag + "arm refused: no runway on " + vessel.mainBody.name);
                         return;
                     }
                     state = ApproachState.Armed;
                     MessageManager.post_status_message("APR armed: " + rwy.shortID);
+                    Debug.Log(Tag + "armed on " + rwy.shortID);
                 }
                 else
                 {
                     state = ApproachState.Off;
                     gate = "";
                     MessageManager.post_status_message("APR off");
+                    Debug.Log(Tag + "disarmed");
                 }
             }
+        }
+
+        #endregion
+
+        #region Delegated controller
+
+        // Controller flying the aircraft while APR is not (yet) steering; activated from inside this
+        // module the same way Cruise Flight activates its director, and released in OnDeactivate.
+        StateController underlying;
+
+        StateController Underlying { get { return armed_with_cruise ? (StateController)cruise : fbw; } }
+
+        void TakeDelegate(StateController c)
+        {
+            c.Activate();
+            underlying = c;
+        }
+
+        void ReleaseDelegate()
+        {
+            if (underlying == null)
+                return;
+            underlying.Deactivate();
+            underlying = null;
         }
 
         #endregion
@@ -101,9 +125,10 @@ namespace AtmosphereApproach
         [AutoGuiAttr("Arm over Cruise Flight", true)]
         public bool armed_with_cruise = true;
 
+        // Polled by ApproachHotkeys in every flight frame, not here: AA only updates the active module.
         [GlobalSerializable("apr_arm_key")]
         [AutoHotkeyAttr("APR arm/disarm")]
-        static KeyCode apr_arm_key = KeyCode.None;
+        internal static KeyCode apr_arm_key = KeyCode.None;
 
         #endregion
 
@@ -114,25 +139,16 @@ namespace AtmosphereApproach
             NavBridge.EnsureNavAids();
             state = ApproachState.Off;
             gate = "";
-            underlying = Underlying;
-            underlying.Activate();
+            TakeDelegate(Underlying);
             MessageManager.post_status_message("Approach controller enabled");
         }
 
         protected override void OnDeactivate()
         {
-            if (underlying != null)
-                underlying.Deactivate();
-            underlying = null;
+            ReleaseDelegate();
             state = ApproachState.Off;
             gate = "";
             MessageManager.post_status_message("Approach controller disabled");
-        }
-
-        public override void OnUpdate()
-        {
-            if (Input.GetKeyDown(apr_arm_key))
-                Armed = !Armed;
         }
 
         #endregion
@@ -151,9 +167,8 @@ namespace AtmosphereApproach
             if (underlying != Underlying)
             {
                 // option changed while active: swap the delegated controller
-                underlying.Deactivate();
-                underlying = Underlying;
-                underlying.Activate();
+                ReleaseDelegate();
+                TakeDelegate(Underlying);
             }
             UpdateNavigation();
             UpdateState();
@@ -185,6 +200,7 @@ namespace AtmosphereApproach
                 return;
             }
             double loc = Math.Abs(nav.locDeviation);
+            double gs = Math.Abs(nav.gsDeviation);
             switch (state)
             {
                 case ApproachState.Armed:
@@ -195,46 +211,40 @@ namespace AtmosphereApproach
                     else if (loc > loc_capture_deg)
                         gate = "waiting LOC (dev " + nav.locDeviation.ToString("+0.0;-0.0") + " deg)";
                     else
-                    {
-                        state = ApproachState.Localizer;
-                        gate = "";
-                        MessageManager.post_status_message("APR: localizer captured");
-                    }
+                        Transition(ApproachState.Localizer, "localizer captured");
                     break;
 
                 case ApproachState.Localizer:
                     if (loc > 3.0 * loc_capture_deg)
-                    {
-                        state = ApproachState.Armed;
-                        MessageManager.post_status_message("APR: localizer lost");
-                    }
-                    else if (Math.Abs(nav.gsDeviation) <= gs_capture_deg)
-                    {
-                        state = ApproachState.Glideslope;
-                        gate = "";
-                        MessageManager.post_status_message("APR: glideslope captured");
-                    }
+                        Transition(ApproachState.Armed, "localizer lost");
+                    else if (gs <= gs_capture_deg)
+                        Transition(ApproachState.Glideslope, "glideslope captured");
                     else
                         gate = (nav.gsDeviation > 0 ? "above GS " : "below GS ") + nav.gsDeviation.ToString("+0.00;-0.00") + " deg";
                     break;
 
                 case ApproachState.Glideslope:
                     if (loc > 3.0 * loc_capture_deg)
-                    {
-                        state = ApproachState.Armed;
-                        MessageManager.post_status_message("APR: localizer lost");
-                    }
+                        Transition(ApproachState.Armed, "localizer lost");
+                    else if (gs > 3.0 * gs_capture_deg)
+                        Transition(ApproachState.Localizer, "glideslope lost");
                     else if (height_above_runway < decision_height)
-                    {
-                        state = ApproachState.Minimums;
-                        MessageManager.post_status_message("APR: MINIMUMS");
-                    }
+                        Transition(ApproachState.Minimums, "MINIMUMS");
                     break;
 
                 case ApproachState.Minimums:
-                    // M1: hand over to Fly-By-Wire or switch the master off here
+                    // M1: hand over to Fly-By-Wire here
                     break;
             }
+        }
+
+        void Transition(ApproachState next, string message)
+        {
+            state = next;
+            gate = "";
+            MessageManager.post_status_message("APR: " + message);
+            Debug.Log(Tag + message + " (DME " + nav.dme.ToString("0") + " m, LOC " + nav.locDeviation.ToString("0.00") +
+                ", GS " + nav.gsDeviation.ToString("0.00") + ", above rwy " + height_above_runway.ToString("0") + " m)");
         }
 
         static double Wrap360(double a)
@@ -279,18 +289,18 @@ namespace AtmosphereApproach
             GUILayout.Label("Runway", GUIStyles.labelStyleLeft, GUILayout.Width(55.0f));
             if (GUILayout.Button("<", GUIStyles.toggleButtonStyle, GUILayout.Width(25.0f)))
                 NavBridge.StepRunway(-1);
-            string rwyText = rwy == null ? "no runway" :
-                (rwy.isINSTarget ? "INS " : "") + rwy.shortID + " hdg " + rwy.hdg.ToString("000") + " elev " + rwy.altMSL.ToString("0") + " m";
-            GUILayout.Label(rwyText, GUIStyles.labelStyleLeft);
+            GUILayout.Label(rwy == null ? "no runway" : (rwy.isINSTarget ? "INS " : "") + rwy.shortID, GUIStyles.labelStyleLeft, GUILayout.Width(90.0f));
             if (GUILayout.Button(">", GUIStyles.toggleButtonStyle, GUILayout.Width(25.0f)))
                 NavBridge.StepRunway(1);
             GUILayout.EndHorizontal();
+            if (rwy != null)
+                GUILayout.Label("        hdg " + rwy.hdg.ToString("000") + "   elev " + rwy.altMSL.ToString("0") + " m   " + rwy.ident, GUIStyles.labelStyleLeft);
 
             GUILayout.BeginHorizontal();
             GUILayout.Label("GS", GUIStyles.labelStyleLeft, GUILayout.Width(55.0f));
             if (GUILayout.Button("<", GUIStyles.toggleButtonStyle, GUILayout.Width(25.0f)))
                 NavBridge.StepGlideslope(-1);
-            GUILayout.Label(nav.glideslope.ToString("0.0") + " deg", GUIStyles.labelStyleLeft);
+            GUILayout.Label(nav.glideslope.ToString("0.0") + " deg", GUIStyles.labelStyleLeft, GUILayout.Width(90.0f));
             if (GUILayout.Button(">", GUIStyles.toggleButtonStyle, GUILayout.Width(25.0f)))
                 NavBridge.StepGlideslope(1);
             GUILayout.EndHorizontal();
@@ -303,9 +313,9 @@ namespace AtmosphereApproach
             if (nav.valid && rwy != null)
             {
                 GUILayout.Label("DME " + (nav.dme / 1000.0).ToString("0.0") + " km   LOC " + nav.locDeviation.ToString("+0.0;-0.0") +
-                    "   GS " + nav.gsDeviation.ToString("+0.00;-0.00"), GUIStyles.labelStyleLeft);
-                GUILayout.Label("above rwy " + height_above_runway.ToString("0") + " m   trk " + track.ToString("000") +
-                    "   int " + intercept.ToString("+0;-0") + "   spd " + vessel.srfSpeed.ToString("0") + " m/s", GUIStyles.labelStyleLeft);
+                    " deg   GS " + nav.gsDeviation.ToString("+0.00;-0.00") + " deg", GUIStyles.labelStyleLeft);
+                GUILayout.Label("above rwy " + height_above_runway.ToString("0") + " m   spd " + vessel.srfSpeed.ToString("0") + " m/s", GUIStyles.labelStyleLeft);
+                GUILayout.Label("track " + track.ToString("000") + "   rwy " + nav.runwayHeading.ToString("000") + "   intercept " + intercept.ToString("+0;-0") + " deg", GUIStyles.labelStyleLeft);
             }
         }
 
