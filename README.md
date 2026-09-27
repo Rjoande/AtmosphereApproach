@@ -1,12 +1,12 @@
 # AtmosphereApproach (AAPR)
 
-An **APR** (ILS approach) mode for [AtmosphereAutopilot](https://github.com/Boris-Barboris/AtmosphereAutopilot): arm it on the runway tuned in [NavInstruments](https://github.com/linuxgurugamer/NavInstruments), let it capture the localizer and the glideslope, and it flies the approach down to the decision height, where it hands the plane back to you for the flare, the touchdown and the braking. Like the APR button on a general-aviation autopilot panel: it flies the path, you fly the throttle.
+This mod is an add-on for [AtmosphereAutopilot](https://github.com/Boris-Barboris/AtmosphereAutopilot) replicating an **APR** (ILS approach) mode: using reflection on [NavInstruments](https://github.com/linuxgurugamer/NavInstruments) for runway selection and flight parameters, the AP captures the localizer and the glideslope, and flies the approach down to the decision height, where it hands the plane back to you for the flare, the touchdown and the braking. Like the APR button on a general-aviation autopilot panel.
 
 > **Status: pre-alpha.** The current build is an integration spike: it registers as a new autopilot inside AtmosphereAutopilot, reads the runway and the live ILS deviations from NavInstruments and shows the arm / capture state, but it does not steer the aircraft yet.
 
 ## How it works
 
-AtmosphereAutopilot is built as a library of autopilots: it looks for high-level controllers in every loaded plugin and lists them in its *Autopilot module manager* window. AtmosphereApproach adds one, **Approach controller**, next to *Standard Fly-By-Wire*, *Cruise Flight* and *Mouse Director*. It is not a fork: AtmosphereAutopilot stays untouched and is a required dependency. The controller drives the aircraft through AtmosphereAutopilot's own director and stability controllers, so it inherits their tuning, AoA and G moderation and craft settings.
+AtmosphereAutopilot is built as a library of autopilots: it looks for high-level controllers in every loaded plugin and lists them in its *Autopilot module manager* window. AtmosphereApproach adds one, **Approach controller**, next to AA's bundled *Standard Fly-By-Wire*, *Cruise Flight* and *Mouse Director*. This is not a fork: AtmosphereAutopilot stays untouched and is a required dependency. The controller drives the aircraft through AtmosphereAutopilot's own director and stability controllers, so it inherits their tuning, moderation and craft settings.
 
 The runway and the glideslope are the ones selected in NavInstruments' HSI (or you can step through them from the Approach window): what the HSI shows is what the autopilot flies.
 

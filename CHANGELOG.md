@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [alpha pre-release]
 
 ### Added
 - **Approach controller** registered inside AtmosphereAutopilot: it shows up in the *Autopilot module manager* next to Fly-By-Wire, Cruise Flight and Mouse Director, with its own window and an *APR arm/disarm* entry in AtmosphereAutopilot's Hotkeys manager. AtmosphereAutopilot is untouched and required.
