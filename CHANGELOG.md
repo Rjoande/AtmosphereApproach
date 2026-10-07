@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.2.0
+
+### Added
+- **APR now flies the approach!** See README for how to use it.
+
 ## [alpha pre-release]
 
 ### Added
